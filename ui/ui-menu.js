@@ -1,4 +1,5 @@
 import { bootEngine } from '../engine/engine-core.js';
+import { showHUD } from './ui-hud.js';
 
 export function createMenu(container) {
     const menu = document.createElement('div');
@@ -23,6 +24,7 @@ export function createMenu(container) {
 
     document.getElementById('main-start-btn').onclick = () => {
         menu.style.display = 'none';
+        showHUD(true); // <--- Add this!
         bootEngine();
     };
 

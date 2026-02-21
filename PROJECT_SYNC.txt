@@ -1,0 +1,460 @@
+PROJECT_MANIFEST: HIGHWAY-MEN
+VERSION: v0.0.6-MODULAR
+------------------------------
+
+FILE: index.html
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <title>LITVINYUK INDUSTRIES | HIGHWAY MEN</title>
+    <style>
+        body { margin: 0; background: #000; color: #0f0; font-family: monospace; overflow: hidden; }
+        #game-container { width: 100vw; height: 100vh; position: relative; }
+        /* Version is now managed by JS */
+    </style>
+</head>
+<body>
+    <div id="game-container"></div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js"></script>
+    <script type="module" src="main.js"></script>
+</body>
+</html>
+```
+
+FILE: main.js
+```javascript
+import { VER } from './config/version.js';
+import { createUI } from './ui/ui-manager.js';
+
+console.log("HIGHWAY-MEN ENGINE", VER);
+
+createUI();
+
+```
+
+FILE: config\settings.js
+```javascript
+export const Settings = {
+    debug: true,
+    cameraFollowSmoothing: 0.1,
+    movementSpeed: 0.1
+};
+
+/* [AI_CODER_NOTES]
+   - Placeholder for future graphics, audio, and gameplay settings.
+   - Keeps engine behavior configurable without editing core files.
+*/
+
+```
+
+FILE: config\version.js
+```javascript
+export const VER = "v0.0.5.4-ALPHA";
+
+/* [AI_CODER_NOTES]
+   - Centralized version control for the modular engine.
+   - Imported by main.js and engine-core.js.
+*/
+
+```
+
+FILE: engine\engine-camera.js
+```javascript
+export function initCamera() {
+    const camera = new THREE.PerspectiveCamera(
+        75,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        1000
+    );
+
+    camera.position.set(0, 5, 12);
+    return camera;
+}
+
+```
+
+FILE: engine\engine-core.js
+```javascript
+import { initRenderer } from './engine-renderer.js';
+import { initScene } from './engine-scene.js';
+import { initCamera } from './engine-camera.js';
+import { startLoop } from './engine-loop.js';
+import { Vessel } from '../systems/vessel-class.js';
+import { loadSectorEntities } from '../systems/vessel-loader.js';
+import { WorldState } from '../systems/vessel-registry.js';
+
+export let scene, camera, renderer;
+
+export function bootEngine() {
+    console.warn("ENGINE_START_SEQUENCE");
+
+    scene = initScene();
+    camera = initCamera();
+    renderer = initRenderer();
+
+    // Spawn local player
+    new Vessel({ id: WorldState.localPlayerId, p: [0, 0.35, 0], r: [0] }, scene);
+
+    // Spawn ghost vehicles
+    loadSectorEntities(scene);
+
+    startLoop(scene, camera, renderer);
+}
+
+```
+
+FILE: engine\engine-loop.js
+```javascript
+import { updateVehicle } from '../systems/vehicle-controller.js';
+
+let animId = null;
+let lastTime = 0;
+let isPaused = false;
+
+export function startLoop(scene, camera, renderer) {
+    function loop(t = 0) {
+        animId = requestAnimationFrame(loop);
+
+        const dt = t - lastTime;
+        lastTime = t;
+
+        if (!isPaused) {
+            updateVehicle(scene, camera, dt);
+            renderer.render(scene, camera);
+        }
+    }
+
+    loop();
+}
+
+```
+
+FILE: engine\engine-renderer.js
+```javascript
+export function initRenderer() {
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+
+    const container = document.getElementById('game-container');
+    container.appendChild(renderer.domElement);
+
+    window.addEventListener('resize', () => {
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    return renderer;
+}
+
+```
+
+FILE: engine\engine-scene.js
+```javascript
+export function initScene() {
+    const scene = new THREE.Scene();
+
+    const grid = new THREE.GridHelper(500, 50, 0x004400, 0x111111);
+    scene.add(grid);
+
+    return scene;
+}
+
+```
+
+FILE: engine\engine-utils.js
+```javascript
+/* Utility functions will go here as the engine grows */
+
+export function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+}
+
+```
+
+FILE: systems\input-manager.js
+```javascript
+export const keys = {};
+
+window.onkeydown = (e) => {
+    keys[e.key.toLowerCase()] = true;
+};
+
+window.onkeyup = (e) => {
+    keys[e.key.toLowerCase()] = false;
+};
+
+window.keys = keys;
+
+
+```
+
+FILE: systems\vehicle-controller.js
+```javascript
+import { keys } from './input-manager.js';
+
+let vehicle;
+
+export function updateVehicle(scene, camera, dt) {
+    if (!vehicle) {
+        const geo = new THREE.BoxGeometry(1.8, 0.7, 4);
+        const mat = new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true });
+        vehicle = new THREE.Mesh(geo, mat);
+        scene.add(vehicle);
+    }
+
+    // Basic WASD movement
+    if (keys['w']) vehicle.translateZ(-0.1);
+    if (keys['s']) vehicle.translateZ(0.1);
+    if (keys['a']) vehicle.rotation.y += 0.03;
+    if (keys['d']) vehicle.rotation.y -= 0.03;
+
+    // Camera follow
+    const offset = new THREE.Vector3(0, 5, 12).applyQuaternion(vehicle.quaternion);
+    camera.position.lerp(vehicle.position.clone().add(offset), 0.1);
+    camera.lookAt(vehicle.position);
+}
+
+```
+
+FILE: systems\vessel-class.js
+```javascript
+import { WorldState, registerVessel } from './vessel-registry.js';
+
+export class Vessel {
+    constructor(data, scene) {
+        this.id = data.id;
+        this.isLocal = (this.id === WorldState.localPlayerId);
+
+        const geo = new THREE.BoxGeometry(1.8, 0.7, 4);
+        const mat = new THREE.MeshBasicMaterial({
+            color: this.isLocal ? 0xff0000 : 0x4444ff,
+            wireframe: true,
+            transparent: !this.isLocal,
+            opacity: this.isLocal ? 1.0 : 0.4
+        });
+
+        this.mesh = new THREE.Mesh(geo, mat);
+        this.mesh.position.set(data.p[0], data.p[1], data.p[2]);
+        scene.add(this.mesh);
+
+        registerVessel(this);
+    }
+}
+
+```
+
+FILE: systems\vessel-loader.js
+```javascript
+import { Vessel } from './vessel-class.js';
+import { log } from '../ui/ui-console.js';
+
+export function loadSectorEntities(scene) {
+    log("FETCHING_LOCAL_SECTOR_DATA...", 'warn');
+
+    const remoteData = [
+        { id: "v_offline_99", p: [10, 0.35, -20], r: [0] },
+        { id: "v_offline_102", p: [-15, 0.35, -5], r: [1.5] }
+    ];
+
+    remoteData.forEach(data => {
+        new Vessel(data, scene);
+        log(`SPAWNED_GHOST: ${data.id}`, 'info');
+    });
+}
+
+```
+
+FILE: systems\vessel-registry.js
+```javascript
+export const WorldState = {
+    vessels: {},
+    localPlayerId: "v_001"
+};
+
+export function registerVessel(vessel) {
+    WorldState.vessels[vessel.id] = vessel;
+}
+
+export function getVessel(id) {
+    return WorldState.vessels[id];
+}
+
+```
+
+FILE: ui\ui-console.js
+```javascript
+export function log(msg, type = 'info') {
+    const content = document.getElementById('log-content');
+    if (!content) return;
+
+    const color =
+        type === 'error' ? '#ff4444' :
+        type === 'warn'  ? '#ffff00' :
+                           '#00ff00';
+
+    content.innerHTML += `<div style="color:${color}">[${new Date().toLocaleTimeString()}] ${msg}</div>`;
+    const logBox = document.getElementById('ui-logbox');
+    logBox.scrollTop = logBox.scrollHeight;
+}
+
+export function createConsole(container) {
+    const logBox = document.createElement('div');
+    logBox.id = 'ui-logbox';
+    logBox.style.cssText =
+        "position:fixed; bottom:0; left:0; width:100%; height:25px; " +
+        "background:rgba(0,10,0,0.95); border-top:1px solid #0f0; z-index:9000; " +
+        "overflow:hidden; font-family:monospace; font-size:11px; color:#0f0; " +
+        "transition:0.2s; cursor:pointer;";
+
+    logBox.innerHTML = "<div id='log-content' style='padding:5px'>> SYSTEM_STABLE...</div>";
+
+    logBox.onclick = () =>
+        logBox.style.height = logBox.style.height === "200px" ? "25px" : "200px";
+
+    container.appendChild(logBox);
+
+    window.onerror = (message, source, lineno) => {
+        log(`FATAL: ${message} (Line: ${lineno})`, 'error');
+        return false;
+    };
+}
+
+```
+
+FILE: ui\ui-loader.js
+```javascript
+import { log } from './ui-console.js';
+
+export function createLoader(container) {
+    const loader = document.createElement('div');
+    loader.id = 'ui-loader';
+    loader.style.cssText =
+        "position:absolute; width:100%; height:100%; background:#000; display:flex; " +
+        "flex-direction:column; justify-content:center; align-items:center; z-index:8000; color:#0f0;";
+
+    loader.innerHTML = `
+        <h3>INITIALIZING_VAULT</h3>
+        <div style="width:200px; height:2px; background:#111;">
+            <div id='loader-bar' style="width:0%; height:100%; background:#0f0; transition:0.5s;"></div>
+        </div>
+    `;
+
+    container.appendChild(loader);
+
+    setTimeout(() => {
+        const bar = document.getElementById('loader-bar');
+        if (bar) bar.style.width = "100%";
+        log("BOOT_RESOURCES_LOADED", 'warn');
+
+        setTimeout(() => {
+            loader.style.display = 'none';
+            document.getElementById('ui-mainmenu').style.display = 'flex';
+        }, 600);
+    }, 100);
+}
+
+```
+
+FILE: ui\ui-manager.js
+```javascript
+import { createConsole } from './ui-console.js';
+import { createMenu } from './ui-menu.js';
+import { createOptions } from './ui-options.js';
+import { createLoader } from './ui-loader.js';
+
+export function createUI() {
+    const container = document.getElementById('game-container');
+    container.innerHTML = '';
+
+    createConsole(container);
+    createLoader(container);
+    createMenu(container);
+    createOptions(container);
+}
+
+```
+
+FILE: ui\ui-menu.js
+```javascript
+import { bootEngine } from '../engine/engine-core.js';
+
+export function createMenu(container) {
+    const menu = document.createElement('div');
+    menu.id = 'ui-mainmenu';
+    menu.style.cssText =
+        "position:absolute; width:100%; height:100%; background:#000; display:none; " +
+        "flex-direction:column; justify-content:center; align-items:center; z-index:7000;";
+
+    menu.innerHTML = `
+        <h1 style="letter-spacing:10px;">HIGHWAY-MEN</h1>
+        <button id="main-start-btn"
+            style="margin:5px; padding:10px 40px; background:none; color:#0f0; border:1px solid #0f0; cursor:pointer;">
+            CONTINUE
+        </button>
+        <button id="main-reload-btn"
+            style="margin:5px; padding:5px 20px; background:none; color:#444; border:1px solid #444; cursor:pointer; font-size:10px;">
+            HARD_REFRESH
+        </button>
+    `;
+
+    container.appendChild(menu);
+
+    document.getElementById('main-start-btn').onclick = () => {
+        menu.style.display = 'none';
+        bootEngine();
+    };
+
+    document.getElementById('main-reload-btn').onclick = () => location.reload();
+}
+
+```
+
+FILE: ui\ui-options.js
+```javascript
+import { log } from './ui-console.js';
+
+export function createOptions(container) {
+    const options = document.createElement('div');
+    options.id = 'ui-options';
+    options.style.cssText =
+        "position:absolute; width:100%; height:100%; background:rgba(0,0,0,0.85); display:none; " +
+        "flex-direction:column; justify-content:center; align-items:center; z-index:7500; color:#fff;";
+
+    options.innerHTML = `
+        <h2 style="color:#ffff00; letter-spacing:5px;">OPTIONS</h2>
+        <button id="opt-continue"
+            style="margin:10px; padding:10px; width:200px; background:none; border:1px solid #fff; color:#fff; cursor:pointer;">
+            CONTINUE
+        </button>
+        <button id="opt-reload"
+            style="margin:10px; padding:10px; width:200px; background:none; border:1px solid #ffff00; color:#ffff00; cursor:pointer;">
+            RELOAD GAME
+        </button>
+        <button id="opt-exit"
+            style="margin:10px; padding:10px; width:200px; background:none; border:1px solid #ff4444; color:#ff4444; cursor:pointer;">
+            EXIT
+        </button>
+    `;
+
+    container.appendChild(options);
+
+    document.getElementById('opt-continue').onclick = () => {
+        options.style.display = 'none';
+        window.isPaused = false;
+        log("UI_OVERLAY_DISABLED", 'warn');
+    };
+
+    document.getElementById('opt-reload').onclick = () => {
+        log("RESTARTING_SIMULATION...", 'warn');
+        location.reload();
+    };
+
+    document.getElementById('opt-exit').onclick = () => {
+        log("CLEAN_EXIT_INITIATED", 'error');
+        location.reload();
+    };
+}
+
+```
+
